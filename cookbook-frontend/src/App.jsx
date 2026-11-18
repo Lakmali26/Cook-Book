@@ -1,13 +1,40 @@
 
-import { useState } from "react";
-import recipes from "./data/recipes";
+import { useState, useEffect } from "react";
 
 function App() {
+  const [recipes, setRecipes] = useState([]);
   const [ingredients, setIngredients] = useState([]);
   const [matchingRecipes, setMatchingRecipes] = useState([]);
   const [shoppingList, setShoppingList] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [maxCookingTime, setMaxCookingTime] = useState("any");
+
+  // Loading and error states
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Get recipes from the backend API
+  useEffect(() => {
+    async function fetchRecipes() {
+      try {
+        const response = await fetch("http://localhost:5000/api/recipes");
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch recipes.");
+        }
+
+        const data = await response.json();
+        setRecipes(data);
+      } catch (error) {
+        setError("Could not load recipes. Please check the backend server.");
+        console.error("Error fetching recipes:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchRecipes();
+  }, []);
 
   // Ingredients users can select
   const availableIngredients = [
@@ -18,7 +45,6 @@ function App() {
     "Cheese",
     "Chicken"
   ];
-
 
   // Select or unselect an ingredient
   function selectIngredient(ingredient) {
@@ -33,49 +59,43 @@ function App() {
     setHasSearched(false);
   }
 
-  // Find recipes based on ingredients and cooking time
-  function findRecipes() {
+  // Find recipes using the backend matching API
+  async function findRecipes() {
     if (ingredients.length === 0) {
       alert("Please select at least one ingredient.");
       return;
     }
 
-    const results = recipes
-      .map((recipe) => {
-        const matchedIngredients = recipe.ingredients.filter(
-          (item) => ingredients.includes(item)
-        );
+    try {
+      const response = await fetch(
+        "http://localhost:5000/api/recipes/match",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ingredients,
+            maxCookingTime
+          })
+        }
+      );
 
-        const missingIngredients = recipe.ingredients.filter(
-          (item) => !ingredients.includes(item)
-        );
+      if (!response.ok) {
+        throw new Error("Failed to find matching recipes.");
+      }
 
-        const matchPercentage = Math.round(
-          (matchedIngredients.length / recipe.ingredients.length) * 100
-        );
+      const results = await response.json();
 
-        return {
-          ...recipe,
-          matchedIngredients,
-          missingIngredients,
-          matchPercentage
-        };
-      })
-      .filter((recipe) => {
-        const hasMatchingIngredients =
-          recipe.matchedIngredients.length > 0;
+      setMatchingRecipes(results);
+      setHasSearched(true);
 
-        const matchesCookingTime =
-          maxCookingTime === "any" ||
-          recipe.cookingTime <= Number(maxCookingTime);
-
-        return hasMatchingIngredients && matchesCookingTime;
-      })
-      .sort((a, b) => b.matchPercentage - a.matchPercentage);
-
-    setMatchingRecipes(results);
-    setHasSearched(true);
+    } catch (error) {
+      console.error("Error finding recipes:", error);
+      alert("Could not find recipes. Please check the backend server.");
+    }
   }
+
 
   // Add missing ingredients to shopping list
   function addToShoppingList(missingIngredients) {
@@ -172,81 +192,96 @@ function App() {
 
         <button
           onClick={findRecipes}
-          className="mt-6 w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700"
+          disabled={loading || !!error}
+          className="mt-6 w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400"
         >
           Find Recipes
         </button>
       </section>
 
       {/* Recipe matching results */}
-      {hasSearched && (
-        <section className="max-w-3xl mx-auto px-6 py-10">
+      <section className="max-w-3xl mx-auto px-6 py-10">
 
-          <h3 className="text-2xl font-bold text-gray-800 mb-6">
-            Recipe Suggestions
-          </h3>
+        {loading && (
+          <p className="text-center text-gray-600">
+            Loading recipes...
+          </p>
+        )}
 
-          {matchingRecipes.length === 0 ? (
-            <p className="text-gray-600">
-              No matching recipes found. Try selecting different ingredients
-              or choosing a longer cooking time.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              {matchingRecipes.map((recipe) => (
-                <div
-                  key={recipe.id}
-                  className="bg-white rounded-xl shadow-md p-6"
-                >
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="text-xl font-semibold text-gray-800">
-                      {recipe.name}
-                    </h4>
+        {error && (
+          <p className="text-center text-red-600">
+            {error}
+          </p>
+        )}
 
-                    <span className="text-green-700 font-bold">
-                      {recipe.matchPercentage}% Match
-                    </span>
-                  </div>
+        {!loading && !error && hasSearched && (
+          <>
+            <h3 className="text-2xl font-bold text-gray-800 mb-6">
+              Recipe Suggestions
+            </h3>
 
-                  <p className="text-gray-500 mb-4">
-                    Cooking time: {recipe.cookingTime} minutes
-                  </p>
-
-                  {/* Match percentage bar */}
-                  <div className="w-full bg-gray-200 rounded-full h-3 mb-5">
-                    <div
-                      className="bg-green-600 h-3 rounded-full"
-                      style={{ width: `${recipe.matchPercentage}%` }}
-                    ></div>
-                  </div>
-
-                  <p className="text-gray-700 mb-2">
-                    <strong>Available ingredients:</strong>{" "}
-                    {recipe.matchedIngredients.join(", ")}
-                  </p>
-
-                  <p className="text-gray-700 mb-4">
-                    <strong>Missing ingredients:</strong>{" "}
-                    {recipe.missingIngredients.length === 0
-                      ? "None"
-                      : recipe.missingIngredients.join(", ")}
-                  </p>
-
-                  <button
-                    onClick={() =>
-                      addToShoppingList(recipe.missingIngredients)
-                    }
-                    disabled={recipe.missingIngredients.length === 0}
-                    className="bg-green-600 text-white px-5 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+            {matchingRecipes.length === 0 ? (
+              <p className="text-gray-600">
+                No matching recipes found. Try selecting different ingredients
+                or choosing a longer cooking time.
+              </p>
+            ) : (
+              <div className="space-y-5">
+                {matchingRecipes.map((recipe) => (
+                  <div
+                    key={recipe._id}
+                    className="bg-white rounded-xl shadow-md p-6"
                   >
-                    Add Missing Ingredients to Shopping List
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+                    <div className="flex justify-between items-center mb-3">
+                      <h4 className="text-xl font-semibold text-gray-800">
+                        {recipe.name}
+                      </h4>
+
+                      <span className="text-green-700 font-bold">
+                        {recipe.matchPercentage}% Match
+                      </span>
+                    </div>
+
+                    <p className="text-gray-500 mb-4">
+                      Cooking time: {recipe.cookingTime} minutes
+                    </p>
+
+                    {/* Match percentage bar */}
+                    <div className="w-full bg-gray-200 rounded-full h-3 mb-5">
+                      <div
+                        className="bg-green-600 h-3 rounded-full"
+                        style={{ width: `${recipe.matchPercentage}%` }}
+                      ></div>
+                    </div>
+
+                    <p className="text-gray-700 mb-2">
+                      <strong>Available ingredients:</strong>{" "}
+                      {recipe.matchedIngredients.join(", ")}
+                    </p>
+
+                    <p className="text-gray-700 mb-4">
+                      <strong>Missing ingredients:</strong>{" "}
+                      {recipe.missingIngredients.length === 0
+                        ? "None"
+                        : recipe.missingIngredients.join(", ")}
+                    </p>
+
+                    <button
+                      onClick={() =>
+                        addToShoppingList(recipe.missingIngredients)
+                      }
+                      disabled={recipe.missingIngredients.length === 0}
+                      className="bg-green-600 text-white px-5 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+                    >
+                      Add Missing Ingredients to Shopping List
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       {/* Shopping list */}
       <section className="max-w-3xl mx-auto bg-white rounded-xl shadow-md p-8 mx-6 mb-12">
